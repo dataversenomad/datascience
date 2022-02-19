@@ -1,8 +1,11 @@
 # Data Science Project Portfolio
 ### By: Jaime Paz Lopez
 
-![alt text](https://github.com/dataversenomad/datascience/blob/main/images/ds.jpg =250x250)
-
+<div style="width: 60%; height: 60%">
+  
+  ![alt text](https://github.com/dataversenomad/datascience/blob/main/images/ds.jpg)
+  
+</div>
 
 
 <!-- DESCRIPTION -->
