@@ -2,7 +2,7 @@
 ### By: Jaime Paz Lopez
 
 
-<img src="https://github.com/dataversenomad/datascience/blob/main/images/ds.jpg" width="1400" height="280">
+<img src="https://github.com/dataversenomad/datascience/blob/main/images/ds.jpg" width="1500" height="280">
 
 
 <!-- DESCRIPTION -->
