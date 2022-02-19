@@ -54,7 +54,7 @@ Here you will find a list of the tools that I use to do data science. Right now,
 <!-- CONTACT -->
 ## Contact
 
-Follow me on   [@Linkedin](linkedin.com/in/jaime-paz-lopez) 
+Follow me on   [@Linkedin](https://www.linkedin.com/in/jaime-paz-lopez/) 
 Contact me at gmail [](https://www.google.com/intl/es/gmail/about/) - jaimepazusac@gmail.com
 
 
