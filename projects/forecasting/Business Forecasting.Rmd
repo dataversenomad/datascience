@@ -1,0 +1,936 @@
+---
+title: "Business Forecasting Project"
+author: "Jaime Paz"
+og:
+  type: "Project"
+  title: "Applied Time Series Forecasting in Business"
+
+footer:
+  
+  - content: 'Created by Jaime Paz. Tools used: R Markdown, Tidymodels, Tidyverse & Timetk'
+date: "`r Sys.Date()`"
+output: markdowntemplates::bulma
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'Business Forecasting.html'))})
+---
+
+<center><img
+src="https://dantaanalytics.com/wp-content/uploads/2021/02/Forecasting-Methods-in-Marketing.jpg"
+width="1000" 
+height="200">
+</center>
+
+
+    
+    
+The goal of this project is to propose a machine learning model capable to predict the revenue in our current company. The goal is to develop a forecasting tool that estimates our revenue during the next months, until the end of the year. 
+
+Our data was sampled from our Finance application tool using data from 2017 through the current year 2021. The data was summarized using our commercial business lines (LOBs). Our department from Finance provide us the forecasted revenue (Actuals) **for the last 2 months (August / September)**, so in short, our main goal is to find a model or models that can better predict these actual revenue values.
+
+**Business Value:** Recently, our team from finance is estimating the revenue every end of the month and providing to us the “Best Estimate projection”. However, our commercial team is proposing to create a new tool that should be capable to give better and accurate results during the next 2 months, and consecuently, the upcoming months. 
+
+
+## Tools used
+
+The tools used for this project are:
+**R Programming & forecasting packages:** The “R programming language” provides us a vast utilities specially for data science and forecasting models. But during the last years, there is a new set of packages called “Tidyverse”, “Tidymodels” & "Timetk", which are useful for machine learning / forecasting tasks. 
+
+These set of tools integrate several data science packages into one single universe, but also gives highly potential tools such as: creating workflows and recipes to compare several models; parallel programming (which gives the utility to forecast several time series at once) and a lot more. In regard to the forecasting tools, we have a great portfolio from traditional models (such as ARIMA and Moving Average) to advanced algorithms such as Deep Learning, XGBoost, Neural Nets, etc.
+
+**R Markdown:** R also provides a set of tools to publish our work using documents and HTML sources, to provide a better executive look & feel and present our work to massive audiences. 
+
+### 1. List of packages used
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+
+rm(list=ls())
+
+setwd("/home/analytics/R/Projects/Time Series 2")
+
+# Forecasting Libraries ----
+library(forecast)    
+# Machine Learning Libraries ----
+library(glmnet)       
+library(randomForest) 
+library(xgboost)     
+# Machine Learning: Ensembles
+library(modeltime.ensemble)
+# Time Series ML ----
+library(tidymodels)   
+library(rules)        
+library(modeltime)    
+# Core Libraries ----
+library(tidyverse)    
+library(lubridate)    
+library(timetk)       
+# Timing & Parallel Processing
+library(tictoc)
+library(future)
+library(doFuture)
+# Extras
+library(fs)
+library(dplyr)
+library(tidyquant)
+library(readxl)
+library(hrbrthemes)
+library(plotly)
+```
+
+
+### 2. Collecting & Preparing Data
+
+The fist step is to get the data by executing MDX based-queries from our cube of finance and then been able to collect it into an Excel spreadsheet. 
+
+The basic steps are: Collect data, convert nomenclatures, convert time-based columns to date & filtering the data. Our category “Forecast” contains the predictions from the traditional model from Finance. Our goal is to improve these numbers.
+
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+
+# Reading the spreadsheet
+financials <- read_excel('/home/analytics/R/Projects/Time Series 2/00_data/FinancialsV3.xlsx',
+                         sheet = 1, col_names = TRUE)
+
+financials$Category...1 <- NULL
+
+# Pivoting our data and converting our data
+fin_data <- financials %>%
+  gather(key = "Month", value = "Value", c(Jan, Feb, Mar, Apr, May, 
+                                           Jun, Jul, Aug, Sep, Oct, Nov, Dec))  %>%
+    group_by(LOB, Year, Category...3, Metric, Month) %>%
+      summarise(Value = sum(Value)) %>%
+        mutate(Month = case_when(
+        Month == "Jan" ~ "01",
+        Month == "Feb" ~ "02",
+        Month == "Mar" ~ "03",
+        Month == "Apr" ~ "04",
+        Month == "May" ~ "05",
+        Month == "Jun" ~ "06",
+        Month == "Jul" ~ "07",
+        Month == "Aug" ~ "08",
+        Month == "Sep" ~ "09",
+        Month == "Oct" ~ "10",
+        Month == "Nov" ~ "11",
+        Month == "Dec" ~ "12",
+        TRUE ~ Month)) %>%  
+      mutate(Date = paste0(Year,"-",Month,"-","01") %>% as_date()) %>% ungroup() %>%
+        rename(Category = Category...3) %>%
+        mutate(Group = case_when(
+        LOB == 'LOB 1' ~ 'G1',
+        LOB == 'LOB 2' ~ 'G1',
+        LOB == 'LOB 3' ~ 'G2',
+        LOB == 'LOB 4' ~ 'G2',
+        LOB == 'LOB 5' ~ 'G3',
+        LOB == 'LOB 6' ~ 'G3',
+        LOB == 'LOB 7' ~ 'G4',
+        TRUE ~ LOB)) %>% 
+  filter_by_time(.start_date = "2017-01-01", .end_date = "2021-09-01") %>% 
+    group_by(LOB, Year, Category, Metric, Month, Group) %>%
+      summarise_by_time(
+        .by        = "month",
+        Value      = last(Value),
+        .type      = "ceiling") %>% 
+        mutate(Date = Date %-time% "1 day")  %>% ungroup()
+
+# fin_data will exclude traditional forecasting tool (we will replace a new method)
+fin_data <- fin_data %>% filter(!(Date < "2021-07-31" &
+                        Category == 'Forecast')  ) 
+fin_data$Year <- NULL
+fin_data$Month <- NULL
+
+# Filter by Category and Metric (Actuals and Revenue)
+fin_data_ac_rev <- fin_data %>% filter(Category == 'Actuals' & Metric == 'Revenue' ) 
+
+```
+
+Main data will be stored in **fin_data_ac_rev** dataframe. 
+
+This is the output of our data structure:
+
+```{r echo=T,  warning=FALSE, message=FALSE}
+fin_data_ac_rev %>% head(5)
+```
+How our data looks like:
+
+```{r echo=T,  warning=FALSE, message=FALSE}
+fin_data_ac_rev %>% head(5)
+```
+
+
+### 3.0 Trend Analysis 
+
+
+We then summarize our data to understand if there is any trend or patter in the time series:
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+# Merging all LOBs
+
+fin_data_ac_rev_bus <- fin_data %>% filter(Category == 'Actuals' & Metric == 'Revenue') %>%
+  select(Date, Value) %>%
+  group_by(Date) %>% summarize(Value = sum(Value)) 
+
+# Plotting current revenue
+fin_data_ac_rev_bus %>%
+  plot_time_series(Date, Value, .smooth = FALSE, 
+                   .facet_scales = "free",
+                   .title = "Commercial Business Revenue (Actuals)" )  
+
+
+```
+
+
+By the middle of 2020, our revenue trend seems to be stabilized, compared to the previous years. Also, our commercial revenue had been decreasing from the middle of 2017 to the middle of 2020 in about **27.6 %** :
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+detrend <- fin_data_ac_rev_bus %>% summarize_by_time(.date_var=Date, .by = 'month', value = mean(Value)) %>%
+  filter(Date == '2017-06-01' | Date == '2020-06-01')
+
+paste0(100 * (detrend$value[2] - detrend$value[1]) / detrend$value[1], " %")
+
+
+```
+
+
+By the end of September 2021, we are reporting about **$204,194** on current revenue.
+
+Now, let's compare our actual revenue against the forecasted revenue (traditional way):
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+fin_data_rev_bus <- fin_data %>% filter(Category %in% c('Actuals', 'Forecast') & Metric == 'Revenue') %>%
+  select(Category, Date, Value) %>%
+  group_by(Category, Date) %>%
+  summarize(Value = sum(Value)) 
+
+fin_data_rev_bus %>% ungroup() %>%
+  plot_time_series(Date, Value, .color_var = Category, .smooth = FALSE,
+                   .title = "Commercial Business Revenue (Actuals vs Forecast)")
+
+```
+
+Clearly we can see a gap of 3% between the actual value and the forecasted value by the end of September 2021. 
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+fin_data_rev_bus %>% filter_by_time(.date_var = Date, 
+                                                  .start_date = '2021-06-30', .end_date = '2021-09-30') %>% ungroup() %>% 
+  plot_time_series(Date, Value, .color_var = Category, .smooth = FALSE,
+                   .title = "Commercial Business Revenue (Actuals vs Forecast)")
+
+```
+
+Despite giving us a good result, there is a lot we can improve. For instance, the model doesn't seem to capture and follow the current trend pretty well. Due to other external variables and other systematic events that we cannot control, the errors are pretty high. We can come up with a model to asses if we can capture these errors and try to follow the pattern using this historical data.  
+
+### 3.1 Correlation Analysis (between lags) 
+
+```{r echo=T, message=FALSE, warning=FALSE}
+fin_data_ac_rev_bus %>% plot_acf_diagnostics(Value, log_interval_vec(Value, offset = 1000000),
+                                           .lags = 100)  
+
+```
+
+After executing some correlation analysis, we can spot some seasonality on the Partial Correlation Plot (2nd graph). Here we are showing all the lags list and the seasonality is spotted from lags 6 to 19. This means that the data is showing strong relationships between these points and we should assess if this variations are significant during our analysis.
+
+*Note:* We are applying *log transformations* in order to make our data more smooth and so we can spot the variations more clearly.
+
+### 3.2 Seasonality/trend/remainder diagnostics
+
+```{r echo=T, message=FALSE, warning=FALSE}
+fin_data_ac_rev_bus %>%
+  plot_stl_diagnostics(Date, log_interval_vec(Value, offset = 1000000), 
+                       .facet_scales = "free_y",
+                       .feature_set = c( "observed", "season", "trend", "remainder"))
+
+```
+
+It's evident that seasonality is present in our data. Since the data is presented in a monthly basis, we need somehow to capture the **monthly seasonality** and assess it in our future models.
+
+As previously stated, our trend has shown a strong decrease during the first 3 years, but it seems to be stabilized during the last 2 years. Also, after removing the trend/seasonality we can see in our **remainder** that errors are still present. Again, our goal is be able to capture these variations/errors through statistical models.
+
+More importantly, a better way to understand the seasonality is to plot the actual values, using an STL (seasonal & trend decomposition) diagnostics.
+
+**Yearly Seasonality:**
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+## YEARLY SEASONALITY
+
+fin_data_ac_rev_bus %>% 
+
+  plot_seasonal_diagnostics(Date, log_interval_vec(Value, offset = 1000000),
+                            .feature_set = "year") 
+
+```
+
+
+**Monthly Seasonality:**
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+## MONTHLY SEASONALITY
+
+fin_data_ac_rev_bus %>% 
+
+  plot_seasonal_diagnostics(Date, log_interval_vec(Value, offset = 1000000),
+                            .feature_set = "month.lbl") 
+
+
+```
+
+Clearly, we can spot some seasonality on a monthly basis. As we can see on the previous graph, there is quite a lot of opportunity in our commercial business during the last quarter of the year. We usually call it, "the busy months" since we are collecting most of the revenue during this period.
+
+
+### 4. Data preparation (phase 1): Transformation / Feature Engineering
+
+Next steps are to normalize and transform our data in order to facilitate the models to capture the variations (specially the sequential models). Basic transformations are used: **logarithm (base 10) & normalization transformation** (centralize the data to the mean and make it comparable).
+
+**Feature Engineering** consists in adding “additional features” to the model and be able to make accurate models. For instance, we add Fourier Terms (i.e., monthly & yearly) in order to capture seasonality more accurate.
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+# Activating Parallel Processing (for fast computing)
+
+registerDoFuture()
+n_cores <- parallel::detectCores()
+plan(
+  strategy = cluster,
+  workers  = parallel::makeCluster(n_cores)
+)
+
+# DATA PREPARATION: TRANSFORMATIONS / FEATURE ENGINEERING
+
+full_data_tbl <- fin_data_ac_rev_bus %>%
+
+  # 1. Log transformation  
+  mutate(value_trans = Value %>% log_interval_vec(offset = 1000000) )  %>%
+  # 2. Standard normalization
+  mutate(value_trans = standardize_vec(value_trans)) %>%
+  
+  # 3. Creating future frame: we are going to asses the last 2 months (available)
+  future_frame(Date, .length_out = 2, .bind_data = TRUE) %>% 
+  
+  # 4. Foutier series: including monthly / yearly seasonality. Order 2.
+  tk_augment_fourier(Date, .periods = c(30, 365), .K = 2) %>%
+  
+  rowid_to_column(var = "rowid") # create rowid to keep track of our values
+
+# DATA PREPARATION: Creating two sets: The data to train the model and data to be assessed (3 months)
+
+# train data
+data_prepared_tbl <- full_data_tbl %>%
+  filter(!is.na(Value)) 
+
+# Future data (future data corresponds to unseen data, that means: October, November and December 2021)
+future_tbl <- full_data_tbl %>%
+  filter(is.na(Value))
+
+```
+
+How the data looks like (after the transformation steps):
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+data_prepared_tbl %>% head(5)
+
+
+```
+
+
+**value_trans:** the actual values already transformed
+
+**Date_sin & Date_cos features:** the fourier series features created to assess seasonality
+
+
+### 5. Data splitting (train / test)
+
+Before training a model, we need to split the data into two parts:
+
+1. **Training set:** The data that is going to be used to train our models.
+2. **Testing set:** Corresponds to the last 12 point values of our data. This is fixed number, and depending on the size of the data we may choose a greater a value. 
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+# TIME SPLIT
+
+splits <- time_series_split(data_prepared_tbl, assess = 12, skip = 12, cumulative = TRUE)
+
+splits %>%
+  tk_time_series_cv_plan() %>%
+  plot_time_series_cv_plan(Date, value_trans)
+
+# New cleaned version of the data:
+
+train_cleaned <- training(splits) 
+
+
+```
+
+
+### 6. Data preparation (Phase 2): "The Recipe"
+
+
+To be more concise, we divided up the "data preparation steps" into 2 portions. The last portion consists in creating a “recipe”; this term is used by the “Tidymodels” package, which means to prepare the data and have it ready for forecasting models.
+
+Our main additional points in this phase, consist in adding two **feature engineering** steps:
+
+**1. Creating Time Series Signature:** In short, this step adds 12 additional variables, that correspond to the binary features per each month (i.e. Date_month.lbl_12 = 1, which means that this data point corresponds the month of December).
+
+**2. Natural Splines:** Splines are continuos and smooth curves, that are added to tour time series with the goal to capture the non-linearity in our series. Splines are usually defined as piecewise polynomials of **degree n** with function values and first n-1 derivatives that agree at the points where they join. The abscissa values of the join points are called knots
+
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+train_cleaned$Value <- NULL
+
+
+recipe_spec <- recipe(value_trans ~ ., data = train_cleaned) %>%  
+  update_role(rowid, new_role = "indicator") %>%
+  # 1. Time series signature: Adding additional terms (monthly features) 
+  step_timeseries_signature(Date) %>% 
+  step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)|(week)|(mday)|(day)|(half)|(quarter)")) %>% 
+  
+  step_rm(ends_with('Date_month')) %>% 
+  step_normalize(Date_index.num, Date_year) %>% #normalizing index value
+  # 2. Adding natural splines features
+  step_ns(ends_with("index.num"), deg_free = 3) %>%
+  # convert all categorical features to factors
+  step_dummy(all_nominal(), one_hot = TRUE)
+
+# since this is a recipe, we display it by
+recipe_spec %>% prep() %>% juice %>% glimpse()
+```
+
+
+### 7. Modelling Stage 1 (Sequential models)
+
+
+We tested out several models during our training stage and finally come up with 4 models:
+
+**Sequential**: It includes ARIMA and some of its variants
+
+**Non-Sequential**: it includes Neural Network Model
+
+Here, when we say **Sequential**, it means that the model considers the order of the data (otherwise, wrong results will be delivered). For **Non-Sequential models** we have included the best option, which is the NEURAL NETWORK model. This machine learning algorithm doesn’t necessary consider the order of the upcoming data.
+
+*Model description summary:*
+
+**1. ARIMA + EXTERNAL REGRESSORS:** ARIMA means “Auto-Regressive + Integrated + Moving Average”. In general terms, this model considers each lag sequentially (monthly data) by providing a weight to each lag (according to their importance). This algorithm also includes an integrated part which basically takes a “derivate” to the original time series and make it more stationary (more efficient to predict). Finally, it includes the Moving Average (MA) part, that simply takes the average of our errors to continuously improve the accuracy. The term EXTERNAL REGRESSORS, means that it includes the additional features that we added previously in the feature engineering stage.
+
+So, ARIMA (1,1,1)(2,1,0)[12] means:  “1” AR component, “1” derivative, “1” MA component. Same logic applies to the seasonal component (2,1,0). Finally, “[12]” means the period of our data. 
+
+**2. ARIMA + SLT:** Though this variant doesn’t include the "external regressors" part, it has the capability to include a seasonal pattern (STL). This has the benefit to capture our monthly seasonality more efficiently.
+
+**3. XGBOOST ARIMA + EXTERNAL REGRESSORS:** Apart from adding the ARIMA capabilities, this model also includes an **eXtreme Gradient Boosting** which implements the called “gradient boosting decision tree algorithm”. Boosting is an ensemble technique where new models are added to correct the errors made by existing models. 
+
+
+Each model is composed with a RECIPE (preparing our data for modeling) + MODEL SPECIFICATION (Parameters and configurations made in our models) and finally creating a **WORKFLOW**. This workflow contains all the information from the model, and we can use this stored object to make predictions, compare models and be able to calculate metrics on them.
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+################################ 1. ARIMA + EXTERNAL REGRESSORS #########################################
+
+# RECIPE
+recipe_arima <- recipe_spec %>%
+  step_rm(ends_with('rowid')) %>%
+  step_rm(matches("(Date_month.lbl)")) %>%
+  step_rm(contains('Date_sin')) %>%
+  step_rm(contains('Date_year')) %>%
+  step_rm(contains('Date_cos')) 
+
+# MODEL SPEC
+
+model_spec_arima <- arima_reg(
+  mode = "regression",
+  seasonal_period = 12,
+  non_seasonal_ar = 1,
+  non_seasonal_differences = 1,
+  non_seasonal_ma = 1,
+  seasonal_ar = 2,
+  seasonal_differences = 1,
+  seasonal_ma = 0
+)  %>%
+  set_engine("arima")
+
+# WORKFLOW
+workflow_fit_arima <- workflow() %>%
+  add_model(model_spec_arima) %>%
+  add_recipe(recipe_arima)  %>% 
+  fit(training(splits))
+
+
+################################ 2. ARIMA + STL (Seasonal) #########################################
+
+# MODEL SPEC
+model_spec_arima_STL <-  seasonal_reg(
+  seasonal_period_1 = 12) %>%
+  set_engine("stlm_arima") 
+
+# WORKFLOW
+workflow_fit_arima_STL <- workflow() %>%
+  add_model(model_spec_arima_STL) %>%
+  add_recipe(recipe_arima)  %>% 
+  fit(training(splits))
+
+################################# 3. ARIMA + XGBOOST #############################################
+
+# MODEL SPEC
+
+# arima parameters
+model_arima_boost <- arima_boost(
+  seasonal_period = 12,  
+  non_seasonal_ar = 1,
+  non_seasonal_differences = 1,
+  non_seasonal_ma = 2,
+  seasonal_ar = 2,
+  seasonal_differences = 1,
+  seasonal_ma = 0,
+
+# xgboost parameters  
+  mtry = 20,
+  min_n = 1,
+  tree_depth = 3,
+  learn_rate = 0.25,
+  trees = 15
+
+) %>%
+  set_engine("arima_xgboost")
+
+# WORKFLOW
+workflow_fit_arima_XG <- workflow() %>%
+  add_model(model_arima_boost) %>%
+  add_recipe(recipe_arima)  %>% 
+  fit(training(splits))
+
+
+```
+
+Now, we combine all models into one single table:
+
+```{r echo=T, message=FALSE, warning=FALSE}
+submodels_1_tbl <- modeltime_table(
+  
+  workflow_fit_arima,
+  workflow_fit_arima_STL,
+  workflow_fit_arima_XG
+)
+
+submodels_1_tbl %>%
+  modeltime_accuracy(testing(splits)) %>%
+  arrange(rmse)
+
+```
+
+### 8. Modelling Stage 2 (Non-Sequential models)
+
+
+**4. NEURAL NETWORK: ** This algorithm basically simulates “a brain network” where one can provide several neurons that "continuously learn" according to several iterations or epochs during the training stage. This is a black box model, which it can be difficult to understand but in exchange it provided greater results. Our model was trained using a method called “Hyper-parameter tuning” which basically finds the best parameters that provide better results. Our final version was: [24-5-1] Neural Network, which means: “24” inputs, “5” deep layers and “1” single output.
+
+This stage also includes a sampling technique called: **V-fold cross-validation** (also known as k-fold cross-validation) which randomly splits the data into V groups of roughly equal size (called “folds”). A resample of the analysis, consisted of V-1 of the folds while the assessment set contains the final fold. In basic V-fold cross-validation (i.e. no repeats), the number of resamples is equal to V.
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+################################# 4. NEURAL NETWORK #############################################
+
+# K-FOLD Cross-Validation
+
+set.seed(123)
+resamples_kfold <- train_cleaned %>% vfold_cv(v = 5)  
+resamples_kfold %>%
+  tk_time_series_cv_plan() %>%
+  plot_time_series_cv_plan(Date, value_trans, .facet_ncol = 2)
+
+cell_folds <- vfold_cv(train_cleaned)
+
+# MODEL
+model_spec_nnet_tune <- mlp(
+  mode = "regression",
+  hidden_units = 5,
+  penalty = 0.3,
+  epochs = tune(), #epochs parameter will be tunned as a hyperparameter
+  dropout = 0,
+  activation = 'linear'
+  
+) %>%
+  set_engine("nnet", trace = 0)
+
+
+# MODEL SPEC
+wflw_spec_nnet_tune <- workflow() %>%
+  add_model(model_spec_nnet_tune) %>%
+  add_recipe(recipe_spec %>% update_role(Date, new_role = "indicator"))
+
+
+# TUNNING STAGE
+
+tic()
+set.seed(123)
+tune_results_nnet <- wflw_spec_nnet_tune %>%
+  tune_grid(
+    resamples = resamples_kfold,
+    param_info = parameters(wflw_spec_nnet_tune) %>%
+      update(
+        epochs = epochs(c(10, 1000))),
+    grid = 10,
+    control = control_grid(verbose = TRUE, allow_par = TRUE)
+  )
+toc()
+
+
+# DISPLAY RESULTS (Best option)
+
+tune_results_nnet %>% show_best("rmse", n = Inf)
+
+# ** Finalize
+
+wflw_fit_nnet_tuned <- wflw_spec_nnet_tune %>%
+  finalize_workflow(select_best(tune_results_nnet, "rmse")) %>%
+  fit(train_cleaned)
+
+
+```
+
+
+### 9. Model integration (Sequential Models + Non-Sequential)
+
+The goal of integrating all models into one single table is to have a better approach to assess the accuracy of all of them. We can also combine several models into one **(ENSEMBLE)** by average them together with the goal to have a better prediction.
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+submodels_2_tbl <- modeltime_table(
+  wflw_fit_nnet_tuned) %>%
+  update_model_description(1, "NEURAL NETWORK 24-5-1") %>%  
+  combine_modeltime_tables(submodels_1_tbl) %>%
+  update_model_description(2, "ARIMA (1,1,1)(2,1,0)[12] + XREGS") %>%
+  update_model_description(3, "ARIMA(0,0,1) + STL") %>%
+  update_model_description(4, "XGBOOST ARIMA(1,1,2)(2,1,0)[12] + XREGS") 
+
+#Calibration ----
+calibration_tbl <- submodels_2_tbl %>%
+  modeltime_calibrate(testing(splits))
+
+#Accuracy ----
+calibration_tbl %>% 
+  modeltime_accuracy() %>%
+  arrange(rmse)
+
+
+
+
+```
+
+
+From this table, we can extract the value of **rmse**, which is one metric that assess better the accuracy of our prediction. Root Mean Square Error (RMSE) is the standard deviation of the residuals (prediction errors). Residuals are a measure of how far from the regression line data points are; RMSE is a measure of how spread out these residuals are. The shorter the value, the better. In other words, it tells you how concentrated the data is, around the line of best fit. According to the results, the **NEURAL NETWORK** and the **XGBOOST ARIMA + XREGS** are the best models.
+
+### 10. Model representation (Plotting results)
+
+
+Let's take a look at the forecasted models:
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+calibration_tbl %>%
+  modeltime_forecast(
+    new_data    = testing(splits),
+    actual_data = data_prepared_tbl,
+    keep_data   = TRUE  
+  ) %>%
+  
+
+  plot_modeltime_forecast(
+    .facet_ncol         = 4, 
+    .conf_interval_show = FALSE,
+    .interactive        = TRUE, 
+    .title = "Forecasting Model Assessment"
+  )
+
+```
+
+
+In order to visualize the data in the original values, we need to apply the inverse of the standardization and the logarithm:
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+# EXECUTING THE INVERSE OF THE LOGARITHM AND THE STANDARDIZATION:
+
+forecast_test_tbl <- submodels_2_tbl %>%
+  modeltime_forecast(
+    new_data    = testing(splits),
+    actual_data = data_prepared_tbl,
+    keep_data   = TRUE) %>%
+  mutate(
+    value_trans= value_trans %>% standardize_inv_vec(mean = 2.88065437189917 , sd = 0.577155837177902))%>%
+  mutate(
+    .value = .value %>% standardize_inv_vec(mean = 2.88065437189917 , sd = 0.577155837177902)) %>% 
+  mutate(
+    value_trans= value_trans %>% log_interval_inv_vec(limit_lower = 0, limit_upper = 1325114.92929216, offset = 1e+06)  ) %>%
+  mutate(
+    .value = .value %>% log_interval_inv_vec(limit_lower = 0, limit_upper = 1325114.92929216, offset = 1e+06))
+
+
+### PREDICTION
+
+table_forecast_metrics <- forecast_test_tbl %>% 
+  select(Date, .value, .model_desc, value_trans)
+
+forecast_test_tbl %>%
+  plot_modeltime_forecast(
+   .facet_ncol         = 4, 
+    .conf_interval_show = FALSE,
+    .interactive        = TRUE, 
+    .title = "Forecasting Model Assessment"
+  )
+
+```
+
+
+Lets take a closer look to the most recent data:
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+table_forecast_metrics <- forecast_test_tbl %>% 
+  select(Date, .value, .model_desc, value_trans)
+
+forecast_test_tbl %>%
+  filter_by_time(.date_var = Date, .start_date = '2021-01-01', .end_date = '2021-09-30') %>%
+  plot_modeltime_forecast(
+    .facet_ncol = 4, .title = "Forecasting Model Assessment (Year 2021)"
+  )
+
+```
+
+
+
+### 11. Proposed Forecasting Models vs Traditional Model (Best Estimate)
+
+Next step is to compare the results against the traditional forecasting method **(BEST ESTIMATE)** that our department of Finance was providing to us. First, lets integrate the data.
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+library(viridis)
+
+fin_data_forecast <- fin_data %>% filter(Category %in% c('Forecast') & Metric == 'Revenue') %>%
+  arrange(Date, ascending = TRUE) %>% group_by(Category, Metric, Date) %>% summarize(.value = sum(Value)) %>% filter_by_time(.date_var = Date, .start_date = "2021-08-01", .end_date = "2021-09-30") %>% ungroup() %>% 
+  mutate(.model_desc = "Forecast (BE)")  
+
+fin_data_forecast$Category <- NULL
+fin_data_forecast$Metric <- NULL
+fin_data_forecast$value_trans <- c(194056.4, 204194.1)
+
+table_forecast_metrics <- rbind(table_forecast_metrics, fin_data_forecast)
+
+table_forecast_metrics_ggplot <- table_forecast_metrics %>%
+  ggplot( aes(x=Date, y=.value, group=.model_desc, color=.model_desc)) +
+  geom_line() +
+  scale_color_viridis(discrete = TRUE) +
+  ggtitle("Proposed Forecasting Model Vs Best Estimate") +
+  theme_ipsum() +
+  ylab("Actuals ($revenue)")
+
+ggplotly(table_forecast_metrics_ggplot)
+
+
+```
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+table_forecast_metrics_ggplot <- table_forecast_metrics %>% 
+  filter_by_time(.date_var = Date, .start_date = '2021-01-01', .end_date = '2021-09-30') %>%
+  ggplot( aes(x=Date, y=.value, group=.model_desc, color=.model_desc)) +
+  geom_line() +
+  scale_color_viridis(discrete = TRUE) +
+  ggtitle("Proposed Forecasting Model vs Best Estimate - Year 2021") +
+  theme_ipsum() +
+  ylab("Actuals ($revenue)")
+
+ggplotly(table_forecast_metrics_ggplot)
+
+
+```
+
+
+Lets how our model generalizes for unseen data:
+
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+model_refit_tbl <- submodels_2_tbl %>%
+  modeltime_refit(data_prepared_tbl)
+
+modeltime_forecast_tbl <- model_refit_tbl %>%
+  modeltime_forecast(
+    new_data    = future_tbl,
+    actual_data = data_prepared_tbl,
+    keep_data   = TRUE 
+  ) %>%
+  mutate(
+    value_trans= value_trans %>% standardize_inv_vec(mean = 2.88065437189917 , sd =0.577155837177902))%>%
+  mutate(
+    .value = .value %>% standardize_inv_vec(mean = 2.88065437189917 , sd = 0.577155837177902)) %>%
+  mutate(
+    value_trans= value_trans %>% log_interval_inv_vec(limit_lower = 0, limit_upper = 1325114.92929216, offset = 1e+06)) %>%
+  mutate(
+    .value = .value %>% log_interval_inv_vec(limit_lower = 0, limit_upper = 1325114.92929216, offset = 1e+06))
+
+modeltime_forecast_tbl %>% 
+  plot_modeltime_forecast(
+     .facet_ncol         = 4, 
+    .conf_interval_show = FALSE,
+    .interactive        = TRUE, 
+    .title = "Forecasting Models Assessment"
+  )
+
+
+```
+
+
+
+### 12. ASSESSMENT: Proposed Forecasting Models vs Traditional Model (Best Estimate)
+
+Next step, is to assess the model(s) that provide a better prediction.
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+table_forecast_metrics %>% filter_by_time(.date_var = Date, .start_date = '2021-08-31', .end_date = '2021-09-30') %>%
+  select(.model_desc, .value, value_trans) %>%
+  group_by(.model_desc) %>% 
+  summarize_accuracy_metrics(
+    truth      = value_trans, 
+    estimate   = .value,
+    metric_set = metric_set(mae, rmse)
+  )
+
+```
+
+In terms of **root mean square errors and mean absolute errors**, we can see that our proposed models over-passed the traditional method. It seems that on average, both models **Neural Network & ARIMA(0,0,1) + STL** output a better prediction. 
+
+One thing to note here is that **RMSE** is used when small errors can be safely ignored and big errors must be penalized and reduced as much as possible. On the other hand, the **MAE** is a better choice where the errors get worse linearly. So in our case, this metric should be a better choice when comparing the models on the future.
+
+
+
+### 13. ASSESSMENT: Ensemble Model (Proposed) vs Traditional Model (Best Estimate)
+
+In machine learning there is a concept called **Ensemble Models** that in short, it combines the output of several models into one single output (model). The decision of our summary metric is arbitrary, but most useful options are **mean and median**.
+
+Next, we are going to create an ensemble model wich contains the best models proposed in terms of **MAE**: 
+
+**1. NEURAL NETWORK 24-5-1**
+
+**2. XGBOOST ARIMA(1,1,2)(2,1,0)[12] + XREGS**
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+# SELECTING MODELS TO SUMMARIZE
+submodels_2_ids_to_keep <- c(1,4)
+
+# CREATING ENSEMBLE TABLE
+
+ensemble_fit <- submodels_2_tbl %>%
+  filter(.model_id %in% submodels_2_ids_to_keep) %>%
+  ensemble_average(type = "median")
+
+model_ensemble_tbl <- modeltime_table(
+  ensemble_fit
+)
+
+forecast_ensemble_test_tbl <- model_ensemble_tbl %>%
+  modeltime_forecast(
+    new_data    = testing(splits),
+    actual_data = data_prepared_tbl,
+    keep_data   = TRUE
+  ) %>% mutate(
+    value_trans= value_trans %>% standardize_inv_vec(mean = 2.88065437189917 , sd =0.577155837177902))%>%
+  mutate(
+    .value = .value %>% standardize_inv_vec(mean = 2.88065437189917 , sd = 0.577155837177902)) %>%
+  mutate(
+    value_trans= value_trans %>% log_interval_inv_vec(limit_lower = 0, limit_upper = 1325114.92929216, offset = 1e+06)) %>%
+  mutate(
+    .value = .value %>% log_interval_inv_vec(limit_lower = 0, limit_upper = 1325114.92929216, offset = 1e+06))
+
+forecast_ensemble_test_tbl %>%
+  plot_modeltime_forecast(
+    .facet_ncol = 4, .title = "Ensemble Model (NNET + XGBOOST ARIMA)"
+  )
+
+```
+
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+table_forecast_ensemble_metrics <- forecast_ensemble_test_tbl %>% 
+  select(Date, .value, .model_desc, .key, value_trans) 
+
+fin_data_forecast$.key = 'ACTUAL'
+
+table_forecast_ensemble_metrics <- rbind(table_forecast_ensemble_metrics, fin_data_forecast)
+table(table_forecast_ensemble_metrics$.model_desc)
+
+table_forecast_ensemble_metrics_ggplot <- table_forecast_ensemble_metrics %>%
+  ggplot(aes(x=Date, y=.value, group=.model_desc, color=.model_desc)) +
+  geom_line() +
+  scale_color_viridis(discrete = TRUE) +
+  ggtitle("Ensemble Model Vs Traditional Method (BEST ESTIMATE)") +
+  theme_ipsum() +
+  ylab("Revenue (Actuals)")
+
+ggplotly(table_forecast_ensemble_metrics_ggplot)
+```
+
+We can clearly see that our **ENSEMBLE MODEL** is a better approach, compared to the traditional method.
+
+
+Next, we are displaying the **MAE** metric, comparing both Ensemble and traditional method (Best Estimate):
+
+```{r echo=T, message=FALSE, warning=FALSE}
+
+table_forecast_ensemble_metrics %>%
+  select(.model_desc, .value, value_trans) %>%
+  group_by(.model_desc) %>%  
+  summarize_accuracy_metrics(
+    truth      = value_trans, 
+    estimate   = .value,
+    metric_set = metric_set(mae)
+  )
+
+#Turn OFF Parallel Backend
+plan(sequential)
+
+```
+
+These results are showing that our ensemble model is a better method for predicting the actual revenue. We had a MAE metric of 3,682 and it was reduced in about 6529
+
+
+### 14. FINAL WORDS AND RECOMMENDATIONS
+
+
+**(1)** According to our proposal, the ensemble model have improved the forecasting accuracy in about 63%. These results were compared to the best estimate method provided by finance (traditional method) by taking the last 2 months (August / September 2021) of the data.
+
+**(2)** The current proposal states that our new model will be a better approach to the traditional method. It’s recommended to test this proposal during the next 2 months.
+
+**(3)** Machine Learning is a continuous process, so it’s recommended to continuously calibrate the proposed model (at least every month) from now on.
+
+**(4)** Next steps are to publish the model using our tools such as POWER BI and Shiny and keep monitoring the performance during the next 2 months. Unless there are no changes in our current commercial structure, we shall continue with the proposal; otherwise, it’s recommended to run the process again and taking into account the new changes on the structure.
+
+
+
+
+
+
+
