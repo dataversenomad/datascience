@@ -24,7 +24,7 @@ In this document, you will find a business forecasting application to predict sa
 
 [2. Attrition Prediction](https://dataversenomad.github.io/attrition/) 
 
-A very useful application in the day-to-day business is to assess our employee turnover. The goal of this project is to apply supervised machine learning algorithms: Logistic Regression & Decision Trees, to predict the likelihood of attrition from a specific HR data. Here, I am focused in using Python and its vast packages for data science such as Pandas, NumPy and Scikit-learn. In addition, I have used "Reticulate" package, which is capable to execute code from Python and R in Rstudio ide.
+A very useful application in the day-to-day business is to assess our employee turnover. The goal of this project is to apply supervised machine learning algorithms: Logistic Regression & Decision Trees, to predict the likelihood of attrition from a specific HR data. Here, I am focused in using Python and its vast packages for data science such as Pandas, NumPy and Scikit-learn. In addition, I have used "Reticulate" package, which is capable to execute code from Python and R in Rstudio ide. A [Jupyter Notebook is also available](https://github.com/dataversenomad/datascience/blob/main/projects/attrition/Attrition.ipynb)
 
 [3. Default loan prediction (Fintech)](https://analyticsdiscovery.net/LendingCompany/) 
 
