@@ -18,7 +18,7 @@ I consider myself as a continuous learner and also, I like to share my knowledge
 ## List of projects
 
 
-[1. Business Time Series Forecasting](https://dataversenomad.github.io/forecasting/) 
+[1. Business Time Series Forecasting](https://dataversenomad.github.io/business_forecasting/) 
 
 In this document, you will find a business forecasting application to predict sales revenue. This is achieved by applying machine learning algorithms such as Neural Networks & XGBoost, but I also explore tradicional (sequential) models such as ARIMA and its variants. I use tools such as "tidymodels" and "modeltime" from R Programming, and the integration of several forecasting packages in R. For deployment, I have used Markdown, a powerful tool to share documents via HTML.
 
