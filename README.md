@@ -20,15 +20,17 @@ I consider myself as a continuous learner and also, I like to share my knowledge
 
 [1. Business Time Series Forecasting](https://dataversenomad.github.io/forecasting/) 
 
-In this document, you will find a business forecasting application to predict sales revenue. We focus on applying machine learning algorithms such as Neural Networks & XGBoost, but we also explore tradicional (sequential) models such as ARIMA and its variants.
+In this document, you will find a business forecasting application to predict sales revenue. This is achieved by applying machine learning algorithms such as Neural Networks & XGBoost, but I also explore tradicional (sequential) models such as ARIMA and its variants. I use tools such as "tidymodels" and "modeltime" from R Programming, and the integration of several forecasting packages in R. For deployment, I have used Markdown, a powerful tool to share documents via HTML.
 
-* [GitHub Emoji Cheat Sheet](https://www.webpagefx.com/tools/emoji-cheat-sheet)
-* [Malven's Flexbox Cheatsheet](https://flexbox.malven.co/)
-* [Malven's Grid Cheatsheet](https://grid.malven.co/)
-* [Img Shields](https://shields.io)
-* [GitHub Pages](https://pages.github.com)
-* [Font Awesome](https://fontawesome.com)
-* [React Icons](https://react-icons.github.io/react-icons/search)
+[2. Attrition Prediction](https://dataversenomad.github.io/attrition/) 
+
+A very useful application in the day-to-day business is to assess our employee turnover. The goal of this project is to apply supervised machine learning algorithms: Logistic Regression & Decision Trees, to predict the likelihood of attrition from a specific HR data. Here, I am focused in using Python and its vast packages for data science such as Pandas, NumPy and Scikit-learn. In addition, I have used "Reticulate" package, which is capable to execute code from Python and R in Rstudio ide.
+
+[3. Default loan prediction (Fintech)](https://analyticsdiscovery.net/LendingCompany/) 
+
+This application is intended to show how machine learning can be used in several industries to solve real problems and take decisions. Digital lending industries and FINTECHS are some examples, and the goal of this application is put an algorithm in production called Random Forest that can help to estimate what is the probability that a borrower is likely to pay a loan. In other words, how likely is that borrowers fail to pay back a debt according to an initial arrangement.
+
+This application was designed using the open source software “R” and Shiny dashboard, which is one package that can be attached to it. Other packages such as H2O and Leaflet were used
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
