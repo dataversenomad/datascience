@@ -32,6 +32,12 @@ This application is intended to show how machine learning can be used in several
 
 This application was designed using the open source software “R” and Shiny dashboard, which is one package that can be attached to it. Other packages such as H2O and Leaflet were used
 
+[4. Modelo de predicción de fuga de clientes (spanish)](https://dataversenomad.github.io/loan_default/) 
+
+Un banco del sector desea crear un modelo predictivo que permita estimar la probabilidad de fuga de cada cliente para la cartera de créditos proporcionada. 
+El objetivo es crear un modelo de aprendizaje automático que permita clasificar dicha fuga de clientes para cada registro.
+Un modelo de predicción de fuga permitirá al negocio, el poder monetizar la predicción obtenida y estimar una posible pérdida monetaria en la cartera de créditos. 
+
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ### Tools used
